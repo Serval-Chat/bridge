@@ -409,6 +409,60 @@ describe('Bridge Bot Utility Tests', () => {
     expect(mapped.target_webhook_message_id).toBe('sw_msg_id');
   });
 
+  it('should suppress embeds for URLs from a replied-to Discord message', async () => {
+    await db.run(
+      'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ['DC_FORWARD', 'DS1', 'SC_FORWARD', 'SS1', 'dw1', 'dt1', 'sw1'],
+    );
+
+    serchat.webhooks.executeWebhook = vi.fn().mockResolvedValue({ id: 'sw_msg_id' });
+
+    const repliedTo = {
+      author: { username: 'reply-user' },
+      member: { displayName: 'Reply User' },
+      content: 'Look at https://example.com/page and https://ser.chat',
+      attachments: {
+        values: () => [{ url: 'https://cdn.discordapp.com/attachments/reply/image.png' }],
+      },
+      mentions: {
+        members: { get: () => undefined },
+        users: { get: () => undefined },
+      },
+    };
+
+    const mockMsg = {
+      author: { bot: false, username: 'test-user', displayAvatarURL: () => 'avatar-url' },
+      channel: {
+        id: 'DC_FORWARD',
+        messages: { fetch: vi.fn().mockResolvedValue(repliedTo) },
+      },
+      content: 'My reply',
+      id: 'm-reply',
+      reference: { messageId: 'discord-parent' },
+      attachments: { size: 0, values: () => [] },
+      mentions: {
+        members: { get: () => undefined },
+        users: { get: () => undefined },
+      },
+    };
+
+    const discordMessageCreate = discordEvents['messageCreate'];
+    expect(discordMessageCreate).toBeDefined();
+    await discordMessageCreate(mockMsg as unknown);
+
+    expect(serchat.webhooks.executeWebhook).toHaveBeenCalledWith('sw1', {
+      content:
+        '> **Reply User**: Look at https://example.com/page and https://ser.chat\nMy reply',
+      username: 'test-user',
+      avatarUrl: 'avatar-url',
+      noEmbedsUrls: [
+        'https://example.com/page',
+        'https://ser.chat',
+        'https://cdn.discordapp.com/attachments/reply/image.png',
+      ],
+    });
+  });
+
   it('should forward a Serchat message to Discord via webhook', async () => {
     await db.run(
       'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',

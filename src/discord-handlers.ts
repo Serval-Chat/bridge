@@ -1,4 +1,4 @@
-import { Client as DiscordClient, WebhookClient } from 'discord.js';
+import { Client as DiscordClient, WebhookClient, type Message } from 'discord.js';
 import { Client as SerchatClient } from 'serchat.ts';
 import {
   db,
@@ -8,6 +8,38 @@ import {
   purgeMessageMap,
   isRateLimited,
 } from './db';
+
+const MAX_NO_EMBEDS_URLS = 25;
+const URL_PATTERN = /https?:\/\/[^\s<>()]+/gi;
+
+export function extractUrls(text: string): string[] {
+  const urls: string[] = [];
+  for (const match of text.matchAll(URL_PATTERN)) {
+    const url = match[0].replace(/[.,!?;:\]\}]+$/g, '');
+    if (!urls.includes(url)) {
+      urls.push(url);
+    }
+    if (urls.length >= MAX_NO_EMBEDS_URLS) {
+      break;
+    }
+  }
+  return urls;
+}
+
+function addNoEmbedUrl(urls: string[], url?: string): void {
+  if (!url || urls.length >= MAX_NO_EMBEDS_URLS || urls.includes(url)) {
+    return;
+  }
+  urls.push(url);
+}
+
+function collectNoEmbedsUrlsFromDiscordMessage(msg: Message): string[] {
+  const urls = extractUrls(msg.content || '');
+  for (const attachment of msg.attachments.values()) {
+    addNoEmbedUrl(urls, attachment.url);
+  }
+  return urls;
+}
 
 export async function ensureDiscordWebhook(
   discord: DiscordClient,
@@ -183,9 +215,11 @@ export function setupDiscordHandlers(discord: DiscordClient, serchat: SerchatCli
     const avatarUrl = msg.author.displayAvatarURL();
 
     let finalContent = resolveDiscordMentions(msg, content);
+    let noEmbedsUrls: string[] = [];
     if (msg.reference?.messageId) {
       try {
         const repliedTo = await msg.channel.messages.fetch(msg.reference.messageId);
+        noEmbedsUrls = collectNoEmbedsUrlsFromDiscordMessage(repliedTo);
         const repliedContent = resolveDiscordMentions(repliedTo, repliedTo.content || '');
         finalContent = `> **${repliedTo.member?.displayName || repliedTo.author.username}**: ${repliedContent.replace(/\n/g, '\n> ')}\n${finalContent}`;
       } catch (e: unknown) {
@@ -210,6 +244,7 @@ export function setupDiscordHandlers(discord: DiscordClient, serchat: SerchatCli
           content: finalContent || ' ',
           username,
           avatarUrl,
+          ...(noEmbedsUrls.length > 0 ? { noEmbedsUrls } : {}),
         });
 
         await db.run(
