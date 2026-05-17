@@ -449,6 +449,7 @@ describe('Bridge Bot Utility Tests', () => {
       content: '> **Display-reply-user-id**: Replying to you!\nHello Serchat! @Display-690cd6f250f11be9566ea1ea and :Emoji-6a00c3c239e601dbb84880f5:\nhttp://localhost/api/v1/files/download/file123.png',
       username: 'test-user',
       avatarURL: 'http://localhostapi-avatar-url',
+      allowedMentions: { parse: [] },
     });
 
     const mapped = await db.get('SELECT * FROM message_map WHERE source_message_id = "sm1"');
@@ -486,6 +487,7 @@ describe('Bridge Bot Utility Tests', () => {
       content: '> **Cool Webhook**: I am a webhook message!\nReplying to webhooks rule!',
       username: 'test-user',
       avatarURL: 'http://localhostapi-avatar-url',
+      allowedMentions: { parse: [] },
     });
 
     const mapped = await db.get('SELECT * FROM message_map WHERE source_message_id = "sm2"');

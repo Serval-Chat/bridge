@@ -5,7 +5,7 @@ import {
   Interaction as SerchatInteraction,
   unwrap,
 } from 'serchat.ts';
-import { db, EXPIRY_MS, refreshWebhookCache, purgeMessageMap } from './db';
+import { db, EXPIRY_MS, refreshWebhookCache, purgeMessageMap, isRateLimited } from './db';
 import { ensureDiscordWebhook } from './discord-handlers';
 
 let discordClientGlobal: DiscordClient;
@@ -207,7 +207,19 @@ export async function getProfilePicture(
 
     let url: string | null = null;
     if (typeof raw === 'string' && raw.length > 0) {
-      url = raw.startsWith('http') ? raw : `${serchat.getApiOrigin()}${raw}`;
+      if (raw.startsWith('http')) {
+        try {
+          const apiOriginUrl = new URL(serchat.getApiOrigin());
+          const rawUrl = new URL(raw);
+          if (rawUrl.host === apiOriginUrl.host) {
+            url = raw;
+          }
+        } catch (e) {
+          url = null;
+        }
+      } else {
+        url = `${serchat.getApiOrigin()}${raw}`;
+      }
     }
 
     if (DEBUG_AVATAR_CACHE) {
@@ -248,7 +260,7 @@ class AllowBridgingCommand extends BotCommand {
     const discordServerId = interaction.getString('discordServerId') as string;
 
     await db.run(
-      'INSERT INTO servers_allowlist (discord_server_id, serchat_server_id, added_by) VALUES (?, ?, "serchat")',
+      'INSERT OR IGNORE INTO servers_allowlist (discord_server_id, serchat_server_id, added_by) VALUES (?, ?, "serchat")',
       [discordServerId, serverId],
     );
 
@@ -362,8 +374,8 @@ class AcceptBridgeCommand extends BotCommand {
 
     const cutoff = Date.now() - EXPIRY_MS;
     const request = await db.get(
-      'SELECT * FROM bridge_requests WHERE id = ? AND serchat_channel_id = ? AND status = "pending_serchat" AND created_at >= ?',
-      [requestId, interaction.channelId, cutoff],
+      'SELECT * FROM bridge_requests WHERE id = ? AND serchat_channel_id = ? AND serchat_server_id = ? AND status = "pending_serchat" AND created_at >= ?',
+      [requestId, interaction.channelId, serverId, cutoff],
     );
 
     if (!request) {
@@ -474,6 +486,9 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
     if (msg.senderId === serchat.user?.id) return;
     if (msg.isWebhook) return;
 
+    if (msg.poll) return;
+    if ((msg as { stickerId?: string }).stickerId) return;
+
     const content = msg.text?.trim().toLowerCase();
 
     if (content === 'accept') {
@@ -485,8 +500,8 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
 
       const cutoff = Date.now() - EXPIRY_MS;
       const request = await db.get(
-        'SELECT * FROM bridge_requests WHERE serchat_channel_id = ? AND status = "pending_serchat" AND created_at >= ?',
-        [msg.channelId, cutoff],
+        'SELECT * FROM bridge_requests WHERE serchat_channel_id = ? AND serchat_server_id = ? AND status = "pending_serchat" AND created_at >= ?',
+        [msg.channelId, msg.serverId, cutoff],
       );
 
       if (request) {
@@ -572,6 +587,8 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
     ]);
     if (bridges.length === 0) return;
 
+    if (isRateLimited(`serchat-${msg.channelId}`)) return;
+
     const username = msg.senderUsername;
     const avatarUrl = await getProfilePicture(serchat, msg.senderId);
 
@@ -639,6 +656,10 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
       finalContent += `\n${urls}`;
     }
 
+    if (finalContent.length > 1990) {
+      finalContent = finalContent.substring(0, 1990) + '…';
+    }
+
     for (const bridge of bridges) {
       try {
         const webhookClient = new WebhookClient({
@@ -649,6 +670,7 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
           content: finalContent || ' ',
           username,
           avatarURL: avatarUrl,
+          allowedMentions: { parse: [] },
         });
 
         await db.run(

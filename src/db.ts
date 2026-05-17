@@ -7,6 +7,19 @@ export const knownDiscordWebhooks = new Set<string>();
 
 export const EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
 
+const rateLimits = new Map<string, number[]>();
+export function isRateLimited(channelId: string): boolean {
+  const now = Date.now();
+  let timestamps = rateLimits.get(channelId) || [];
+  timestamps = timestamps.filter(t => now - t < 1000);
+  if (timestamps.length >= 5) {
+    return true;
+  }
+  timestamps.push(now);
+  rateLimits.set(channelId, timestamps);
+  return false;
+}
+
 export async function refreshWebhookCache(): Promise<void> {
   knownSerchatWebhooks.clear();
   knownDiscordWebhooks.clear();
@@ -73,6 +86,7 @@ export async function initDB(): Promise<void> {
 
     CREATE UNIQUE INDEX IF NOT EXISTS idx_bridges_discord_channel_uniq ON bridges(discord_channel_id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_bridges_serchat_channel_uniq ON bridges(serchat_channel_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_allowlist_pair ON servers_allowlist(discord_server_id, serchat_server_id, added_by);
   `);
 
   await refreshWebhookCache();

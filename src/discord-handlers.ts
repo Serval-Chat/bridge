@@ -6,6 +6,7 @@ import {
   refreshWebhookCache,
   hasMutualAllowlist,
   purgeMessageMap,
+  isRateLimited,
 } from './db';
 
 export async function ensureDiscordWebhook(
@@ -52,7 +53,7 @@ export function setupDiscordHandlers(discord: DiscordClient, serchat: SerchatCli
     if (commandName === 'allow-bridging') {
       const serchatServerId = interaction.options.getString('serchatserverid', true);
       await db.run(
-        'INSERT INTO servers_allowlist (discord_server_id, serchat_server_id, added_by) VALUES (?, ?, "discord")',
+        'INSERT OR IGNORE INTO servers_allowlist (discord_server_id, serchat_server_id, added_by) VALUES (?, ?, "discord")',
         [guildId, serchatServerId],
       );
       await interaction.reply({
@@ -66,6 +67,12 @@ export function setupDiscordHandlers(discord: DiscordClient, serchat: SerchatCli
       const serchatServerId = interaction.options.getString('serchatserverid', true);
 
       await interaction.deferReply();
+
+      const targetChannel = await discord.channels.fetch(discordChannelId).catch(() => null);
+      if (!targetChannel || !('guildId' in targetChannel) || targetChannel.guildId !== guildId) {
+        await interaction.editReply('Channel must belong to this server.');
+        return;
+      }
 
       const hasMutual = await hasMutualAllowlist(guildId, serchatServerId);
       if (!hasMutual) {
@@ -105,8 +112,8 @@ export function setupDiscordHandlers(discord: DiscordClient, serchat: SerchatCli
       await interaction.deferReply();
 
       const bridge = await db.get(
-        'SELECT * FROM bridges WHERE discord_channel_id = ? AND serchat_channel_id = ?',
-        [discordChannelId, serchatChannelId],
+        'SELECT * FROM bridges WHERE discord_channel_id = ? AND serchat_channel_id = ? AND discord_server_id = ?',
+        [discordChannelId, serchatChannelId, guildId],
       );
 
       if (!bridge) {
@@ -158,6 +165,11 @@ export function setupDiscordHandlers(discord: DiscordClient, serchat: SerchatCli
 
     if (msg.webhookId && knownDiscordWebhooks.has(msg.webhookId)) return;
 
+    if (msg.stickers && msg.stickers.size > 0) return;
+    if (msg.poll) return;
+
+    if (isRateLimited(`discord-${msg.channel.id}`)) return;
+
     const bridges = await db.all('SELECT * FROM bridges WHERE discord_channel_id = ?', [
       msg.channel.id,
     ]);
@@ -183,6 +195,10 @@ export function setupDiscordHandlers(discord: DiscordClient, serchat: SerchatCli
         .map((a, i) => `[Attachment ${i + 1}](${a.url})`)
         .join('\n');
       finalContent += `\n${urls}`;
+    }
+
+    if (finalContent.length > 1990) {
+      finalContent = finalContent.substring(0, 1990) + '…';
     }
 
     for (const bridge of bridges) {
