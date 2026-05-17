@@ -164,7 +164,7 @@ export function setupDiscordHandlers(discord: DiscordClient, serchat: SerchatCli
   });
 
   discord.on('messageCreate', async (msg) => {
-    if (msg.author.bot) return;
+    if (msg.author.bot && !msg.content) return;
 
     if (msg.webhookId && knownDiscordWebhooks.has(msg.webhookId)) return;
 
