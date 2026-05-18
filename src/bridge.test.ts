@@ -463,6 +463,67 @@ describe('Bridge Bot Utility Tests', () => {
     });
   });
 
+  it('should forward a Discord forwarded-message snapshot to Serchat', async () => {
+    await db.run(
+      'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ['DC_FORWARD', 'DS1', 'SC_FORWARD', 'SS1', 'dw1', 'dt1', 'sw1'],
+    );
+
+    serchat.webhooks.executeWebhook = vi.fn().mockResolvedValue({ id: 'sw_msg_id' });
+
+    const forwarded = {
+      content: 'Forwarded hello <@545562211393732618> https://example.com/forwarded',
+      attachments: {
+        size: 1,
+        values: () => [{ url: 'https://cdn.discordapp.com/attachments/forwarded/image.png' }],
+      },
+      mentions: {
+        members: {
+          get: (id: string) => {
+            if (id === '545562211393732618') {
+              return { displayName: 'Forwarded User', user: { username: 'forwarded-user' } };
+            }
+            return undefined;
+          },
+        },
+        users: { get: () => undefined },
+      },
+    };
+
+    const mockMsg = {
+      author: { bot: false, username: 'test-user', displayAvatarURL: () => 'avatar-url' },
+      channel: {
+        id: 'DC_FORWARD',
+        messages: { fetch: vi.fn() },
+      },
+      content: '',
+      id: 'm-forward',
+      reference: { messageId: 'discord-forwarded-parent', type: 1 },
+      messageSnapshots: { first: () => forwarded },
+      attachments: { size: 0, values: () => [] },
+      mentions: {
+        members: { get: () => undefined },
+        users: { get: () => undefined },
+      },
+    };
+
+    const discordMessageCreate = discordEvents['messageCreate'];
+    expect(discordMessageCreate).toBeDefined();
+    await discordMessageCreate(mockMsg as unknown);
+
+    expect(mockMsg.channel.messages.fetch).not.toHaveBeenCalled();
+    expect(serchat.webhooks.executeWebhook).toHaveBeenCalledWith('sw1', {
+      content:
+        '> **Forwarded message**: Forwarded hello @Forwarded User https://example.com/forwarded\n> [Forwarded attachment 1](https://cdn.discordapp.com/attachments/forwarded/image.png)',
+      username: 'test-user',
+      avatarUrl: 'avatar-url',
+      noEmbedsUrls: [
+        'https://example.com/forwarded',
+        'https://cdn.discordapp.com/attachments/forwarded/image.png',
+      ],
+    });
+  });
+
   it('should forward a Serchat message to Discord via webhook', async () => {
     await db.run(
       'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',

@@ -10,12 +10,15 @@ import {
 } from './db';
 
 const MAX_NO_EMBEDS_URLS = 25;
+const DISCORD_FORWARD_REFERENCE_TYPE = 1;
 const URL_PATTERN = /https?:\/\/[^\s<>()]+/gi;
+
+type DiscordReadableMessage = Pick<Message, 'content' | 'attachments' | 'mentions'>;
 
 export function extractUrls(text: string): string[] {
   const urls: string[] = [];
   for (const match of text.matchAll(URL_PATTERN)) {
-    const url = match[0].replace(/[.,!?;:\]\}]+$/g, '');
+    const url = match[0].replace(/[.,!?;:\]}]+$/g, '');
     if (!urls.includes(url)) {
       urls.push(url);
     }
@@ -33,12 +36,36 @@ function addNoEmbedUrl(urls: string[], url?: string): void {
   urls.push(url);
 }
 
-function collectNoEmbedsUrlsFromDiscordMessage(msg: Message): string[] {
+function collectNoEmbedsUrlsFromDiscordMessage(msg: DiscordReadableMessage): string[] {
   const urls = extractUrls(msg.content || '');
   for (const attachment of msg.attachments.values()) {
     addNoEmbedUrl(urls, attachment.url);
   }
   return urls;
+}
+
+function getForwardedDiscordMessage(msg: Message): DiscordReadableMessage | undefined {
+  if (msg.reference?.type !== DISCORD_FORWARD_REFERENCE_TYPE) {
+    return undefined;
+  }
+  return msg.messageSnapshots.first();
+}
+
+function appendDiscordAttachmentLinks(content: string, msg: DiscordReadableMessage, label = 'Attachment'): string {
+  if (msg.attachments.size === 0) {
+    return content;
+  }
+
+  const urls = Array.from(msg.attachments.values())
+    .map((a, i) => `[${label} ${i + 1}](${a.url})`)
+    .join('\n');
+
+  return `${content}\n${urls}`;
+}
+
+function quoteDiscordMessage(label: string, content: string): string {
+  const quotedContent = content.trim() || ' ';
+  return `> **${label}**: ${quotedContent.replace(/\n/g, '\n> ')}`;
 }
 
 export async function ensureDiscordWebhook(
@@ -216,23 +243,32 @@ export function setupDiscordHandlers(discord: DiscordClient, serchat: SerchatCli
 
     let finalContent = resolveDiscordMentions(msg, content);
     let noEmbedsUrls: string[] = [];
-    if (msg.reference?.messageId) {
+    const forwardedMessage = getForwardedDiscordMessage(msg);
+    if (forwardedMessage) {
+      noEmbedsUrls = collectNoEmbedsUrlsFromDiscordMessage(forwardedMessage);
+      const forwardedContent = appendDiscordAttachmentLinks(
+        resolveDiscordMentions(forwardedMessage, forwardedMessage.content || ''),
+        forwardedMessage,
+        'Forwarded attachment',
+      );
+      const quotedForward = quoteDiscordMessage('Forwarded message', forwardedContent);
+      finalContent = finalContent ? `${quotedForward}\n${finalContent}` : quotedForward;
+    } else if (msg.reference?.messageId) {
       try {
         const repliedTo = await msg.channel.messages.fetch(msg.reference.messageId);
         noEmbedsUrls = collectNoEmbedsUrlsFromDiscordMessage(repliedTo);
         const repliedContent = resolveDiscordMentions(repliedTo, repliedTo.content || '');
-        finalContent = `> **${repliedTo.member?.displayName || repliedTo.author.username}**: ${repliedContent.replace(/\n/g, '\n> ')}\n${finalContent}`;
+        const quotedReply = quoteDiscordMessage(
+          repliedTo.member?.displayName || repliedTo.author.username,
+          repliedContent,
+        );
+        finalContent = finalContent ? `${quotedReply}\n${finalContent}` : quotedReply;
       } catch (e: unknown) {
         console.error('[Discord->Serchat] Failed to fetch replied message context:', e);
       }
     }
 
-    if (msg.attachments.size > 0) {
-      const urls = Array.from(msg.attachments.values())
-        .map((a, i) => `[Attachment ${i + 1}](${a.url})`)
-        .join('\n');
-      finalContent += `\n${urls}`;
-    }
+    finalContent = appendDiscordAttachmentLinks(finalContent, msg);
 
     if (finalContent.length > 1990) {
       finalContent = finalContent.substring(0, 1990) + '…';
@@ -253,11 +289,6 @@ export function setupDiscordHandlers(discord: DiscordClient, serchat: SerchatCli
         );
       } catch (e: unknown) {
         console.error('[Discord->Serchat] Failed to forward message:', e);
-        try {
-          await msg.channel.send(`**Bridge Error**: Failed to forward message to Serchat.`);
-        } catch (err) {
-          console.error('[Discord->Serchat] Failed to send failure alert to Discord channel:', err);
-        }
       }
     }
   });
