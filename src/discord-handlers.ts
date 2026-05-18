@@ -329,6 +329,9 @@ export function setupDiscordHandlers(discord: DiscordClient, serchat: SerchatCli
     if (content.length > 1990) {
       content = content.substring(0, 1990) + '…';
     }
+    if (content.trim().length === 0) {
+      return;
+    }
 
     for (const map of mappings) {
       try {

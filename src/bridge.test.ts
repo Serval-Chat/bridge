@@ -666,6 +666,37 @@ describe('Bridge Bot Utility Tests', () => {
     );
   });
 
+  it('should ignore Discord update events that do not contain editable content', async () => {
+    await db.run(
+      'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ['DC_FORWARD', 'DS1', 'SC_FORWARD', 'SS1', 'dw1', 'dt1', 'sw1'],
+    );
+    await db.run(
+      'INSERT INTO message_map (source_platform, source_message_id, target_platform, target_channel_id, target_webhook_message_id) VALUES (?, ?, ?, ?, ?)',
+      ['discord', 'discord-edit-empty', 'serchat', 'SC_FORWARD', 'serchat-webhook-message-empty'],
+    );
+
+    serchat.webhooks.editWebhookMessage = vi.fn().mockResolvedValue({});
+
+    const discordMessageUpdate = discordEvents['messageUpdate'];
+    expect(discordMessageUpdate).toBeDefined();
+    await discordMessageUpdate(
+      {} as unknown,
+      {
+        id: 'discord-edit-empty',
+        author: { bot: false },
+        content: '',
+        attachments: { size: 0, values: () => [] },
+        mentions: {
+          members: { get: () => undefined },
+          users: { get: () => undefined },
+        },
+      } as unknown,
+    );
+
+    expect(serchat.webhooks.editWebhookMessage).not.toHaveBeenCalled();
+  });
+
   it('should edit the Discord webhook message when a bridged Serchat message is edited', async () => {
     await db.run(
       'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
