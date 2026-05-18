@@ -95,6 +95,48 @@ discord.on('ready', () => {
 setupDiscordHandlers(discord, serchat);
 setupSerchatHandlers(discord, serchat);
 
+discord.on('error', (error) => {
+  console.error('[Discord] Client error:', error);
+});
+
+discord.on('shardError', (error, shardId) => {
+  console.error(`[Discord] Shard ${shardId} error:`, error);
+});
+
+discord.on('shardDisconnect', (event, shardId) => {
+  console.warn(
+    `[Discord] Shard ${shardId} disconnected (code: ${event.code}, reason: ${event.reason || 'None'})`,
+  );
+});
+
+discord.on('shardReconnecting', (shardId) => {
+  console.warn(`[Discord] Shard ${shardId} reconnecting...`);
+});
+
+discord.on('shardResume', (shardId, replayedEvents) => {
+  console.log(`[Discord] Shard ${shardId} resumed (${replayedEvents} replayed events).`);
+});
+
+serchat.on('disconnect', () => {
+  console.warn('[Serchat] WebSocket disconnected; reconnect scheduled by SDK.');
+});
+
+serchat.on('reconnected', () => {
+  console.log('[Serchat] WebSocket reconnected.');
+});
+
+serchat.on('error', (error) => {
+  console.error('[Serchat] Client error:', error);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[Process] Unhandled rejection:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('[Process] Uncaught exception:', error);
+});
+
 async function start() {
   await initDB();
   console.log('[App] Database initialized.');
