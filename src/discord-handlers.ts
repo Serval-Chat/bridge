@@ -16,20 +16,17 @@ import {
 
 const MAX_NO_EMBEDS_URLS = 25;
 const DISCORD_FORWARD_REFERENCE_TYPE = 1;
-const DISCORD_UNKNOWN_MESSAGE = 10008;
-const DISCORD_DELETE_RECONCILE_INTERVAL_MS = 30_000;
-const DISCORD_DELETE_RECONCILE_BATCH_SIZE = 100;
 const URL_PATTERN = /https?:\/\/[^\s<>()]+/gi;
 
 type DiscordBridgeMessage = Message | PartialMessage;
 type DiscordReadableMessage = Pick<DiscordBridgeMessage, 'content' | 'attachments' | 'mentions'>;
-type DiscordToSerchatMessageMap = {
+interface DiscordToSerchatMessageMap {
   source_message_id: string;
   target_channel_id: string;
   target_webhook_message_id: string;
   discord_channel_id?: string;
   serchat_webhook_id?: string;
-};
+}
 
 export function extractUrls(text: string): string[] {
   const urls: string[] = [];
@@ -102,16 +99,6 @@ function getErrorStatus(error: unknown): number | undefined {
   return typeof error === 'object' && error !== null && 'status' in error
     ? Number((error as { status?: unknown }).status)
     : undefined;
-}
-
-function getErrorCode(error: unknown): number | string | undefined {
-  return typeof error === 'object' && error !== null && 'code' in error
-    ? (error as { code?: number | string }).code
-    : undefined;
-}
-
-function isDiscordUnknownMessageError(error: unknown): boolean {
-  return getErrorCode(error) === DISCORD_UNKNOWN_MESSAGE || getErrorStatus(error) === 404;
 }
 
 async function deleteSerchatMessageForDiscordMap(
