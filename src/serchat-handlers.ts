@@ -1,4 +1,4 @@
-import { Client as DiscordClient, WebhookClient } from 'discord.js';
+import { AttachmentBuilder, Client as DiscordClient, WebhookClient } from 'discord.js';
 import {
   Client as SerchatClient,
   BotCommand,
@@ -293,34 +293,9 @@ async function prependSerchatReplyContext(
     await resolveSerchatMentions(serchat, repliedTo.text || ''),
   );
   repliedContent = await resolveSerchatEmojis(serchat, repliedContent);
+  repliedContent = wrapLinks(repliedContent);
+
   return `> **${repliedTo.senderUsername || 'User'}**: ${repliedContent.replace(/\n/g, '\n> ')}\n${content}`;
-}
-
-export async function resolveSerchatEmojis(serchat: SerchatClient, content: string): Promise<string> {
-  if (!content) return '';
-  const regex = /<emoji:([a-f\d]{24})>/gi;
-  const matches = Array.from(content.matchAll(regex));
-  if (matches.length === 0) return content;
-
-  const uniqueIds = Array.from(new Set(matches.map((m) => m[1])));
-
-  const resolvedEmojisMap = new Map<string, { name: string }>();
-  await Promise.all(
-    uniqueIds.map(async (id) => {
-      const emoji = await getSerchatEmoji(serchat, id);
-      if (emoji) {
-        resolvedEmojisMap.set(id.toLowerCase(), emoji);
-      }
-    }),
-  );
-
-  return content.replace(regex, (match, id) => {
-    const emoji = resolvedEmojisMap.get(id.toLowerCase());
-    if (emoji) {
-      return `:${emoji.name}:`;
-    }
-    return match;
-  });
 }
 
 
@@ -610,6 +585,20 @@ class AcceptBridgeCommand extends BotCommand {
   }
 }
 
+function wrapLinks(content: string): string {
+  content = content.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    '[$1](<$2>)'
+  );
+
+  content = content.replace(
+    /(?<!<)(https?:\/\/[^\s>]+)(?!>)/g,
+    '<$1>'
+  );
+
+  return content;
+}
+
 export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatClient) {
   discordClientGlobal = discord;
   serchatClientGlobal = serchat;
@@ -745,11 +734,11 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
     finalContent = await resolveSerchatEmojis(serchat, finalContent);
     finalContent = await prependSerchatReplyContext(serchat, msg, finalContent);
 
+    let attachment_urls: string[] = [];
     if (msg.hasAttachments()) {
-      const urls = msg.attachments!
+      attachment_urls = msg.attachments!
         .map((a) => msg.getAttachmentUrl(a))
         .join('\n');
-      finalContent += `\n${urls}`;
     }
 
     if (finalContent.length > 1990) {
@@ -767,6 +756,7 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
           username,
           avatarURL: avatarUrl,
           allowedMentions: { parse: [] },
+          files: attachment_urls.map((a) => new AttachmentBuilder(a))
         });
 
         await db!.run(

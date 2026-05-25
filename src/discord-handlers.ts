@@ -43,6 +43,20 @@ export function extractUrls(text: string): string[] {
   return urls;
 }
 
+function wrapLinks(content: string): string {
+  content = content.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    '[$1](<$2>)'
+  );
+
+  content = content.replace(
+    /(?<!<)(https?:\/\/[^\s>]+)(?!>)/g,
+    '<$1>'
+  );
+
+  return content;
+}
+
 function addNoEmbedUrl(urls: string[], url?: string): void {
   if (!url || urls.length >= MAX_NO_EMBEDS_URLS || urls.includes(url)) {
     return;
@@ -345,8 +359,10 @@ export function setupDiscordHandlers(discord: DiscordClient, serchat: SerchatCli
       try {
         const repliedTo = await msg.channel.messages.fetch(msg.reference.messageId);
         noEmbedsUrls = collectNoEmbedsUrlsFromDiscordMessage(repliedTo);
-        const repliedContent = stripLeadingBridgeQuote(
-          resolveDiscordMentions(repliedTo, repliedTo.content || ''),
+        const repliedContent = wrapLinks(
+          stripLeadingBridgeQuote(
+            resolveDiscordMentions(repliedTo, repliedTo.content || ''),
+          ),
         );
         const quotedReply = quoteDiscordMessage(
           repliedTo.member?.displayName || repliedTo.author.username,
