@@ -104,6 +104,16 @@ vi.mock('serchat.ts', () => {
           if (url.includes('/messages/')) {
             const parts = url.split('/');
             const msgId = parts[parts.length - 1];
+            if (msgId === 'serchat-edit-reply-skinny') {
+              return Promise.resolve({
+                message: {
+                  messageId: msgId,
+                  senderId: 'reply-user-id',
+                  text: 'Edited Serchat reply',
+                  replyToId: 'parent-msg-id',
+                },
+              });
+            }
             if (msgId === 'parent-webhook-msg-id') {
               return Promise.resolve({
                 message: {
@@ -916,6 +926,41 @@ describe('Bridge Bot Utility Tests', () => {
     expect(mockWebhookEditMessage).toHaveBeenCalledWith('discord-webhook-message-reply', {
       content: '> **Parent User**: Direct parent text\nEdited Serchat reply',
     });
+  });
+
+  it('should preserve Serchat reply context when a skinny Serchat edit payload omits reply metadata', async () => {
+    await db!.run(
+      'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ['DC_FORWARD', 'DS1', 'SC_FORWARD', 'SS1', 'dw1', 'dt1', 'sw1'],
+    );
+    await db!.run(
+      'INSERT INTO message_map (source_platform, source_message_id, target_platform, target_channel_id, target_webhook_message_id) VALUES (?, ?, ?, ?, ?)',
+      [
+        'serchat',
+        'serchat-edit-reply-skinny',
+        'discord',
+        'DC_FORWARD',
+        'discord-webhook-message-skinny-reply',
+      ],
+    );
+
+    mockWebhookEditMessage.mockClear();
+
+    const serchatMessageUpdate = serchatEvents['messageUpdate'];
+    expect(serchatMessageUpdate).toBeDefined();
+    await serchatMessageUpdate({
+      messageId: 'serchat-edit-reply-skinny',
+      serverId: 'SS1',
+      channelId: 'SC_FORWARD',
+      text: 'Edited Serchat reply',
+    } as unknown);
+
+    expect(mockWebhookEditMessage).toHaveBeenCalledWith(
+      'discord-webhook-message-skinny-reply',
+      {
+        content: '> **Display-reply-user-id**: Replying to you!\nEdited Serchat reply',
+      },
+    );
   });
 
   it('should delete the Serchat webhook message when a bridged Discord message is deleted', async () => {

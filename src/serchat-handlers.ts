@@ -137,6 +137,19 @@ interface SerchatReplyPreview {
 interface SerchatMessageWithReply {
   serverId: string;
   channelId: string;
+  messageId?: string;
+  replyToId?: string;
+  repliedTo?: SerchatReplyPreview;
+}
+
+interface SerchatFetchedMessage {
+  messageId: string;
+  _id?: string;
+  senderId: string;
+  senderUsername?: string;
+  isWebhook?: boolean;
+  webhookUsername?: string;
+  text: string;
   replyToId?: string;
   repliedTo?: SerchatReplyPreview;
 }
@@ -177,15 +190,7 @@ async function fetchSerchatReplyPreview(
   const response = await serchat
     .getRest()
     .get<{
-      message: {
-        messageId: string;
-        _id?: string;
-        senderId: string;
-        senderUsername?: string;
-        isWebhook?: boolean;
-        webhookUsername?: string;
-        text: string;
-      };
+      message: SerchatFetchedMessage;
     }>(`/servers/${serverId}/channels/${channelId}/messages/${messageId}`);
   const data = unwrap(response);
   let resolvedUsername = data.message.senderUsername;
@@ -206,6 +211,32 @@ async function fetchSerchatReplyPreview(
   };
 }
 
+async function fetchSerchatMessageWithReply(
+  serchat: SerchatClient,
+  serverId: string,
+  channelId: string,
+  messageId: string,
+): Promise<SerchatMessageWithReply | undefined> {
+  try {
+    const response = await serchat
+      .getRest()
+      .get<{ message: SerchatFetchedMessage }>(
+        `/servers/${serverId}/channels/${channelId}/messages/${messageId}`,
+      );
+    const data = unwrap(response);
+    return {
+      serverId,
+      channelId,
+      messageId: data.message.messageId || data.message._id || messageId,
+      replyToId: data.message.replyToId,
+      repliedTo: data.message.repliedTo,
+    };
+  } catch (err) {
+    console.error(`Failed to fetch edited message ${messageId}:`, err);
+    return undefined;
+  }
+}
+
 async function resolveSerchatReplyPreview(
   serchat: SerchatClient,
   message: SerchatMessageWithReply,
@@ -213,19 +244,32 @@ async function resolveSerchatReplyPreview(
   if (message.repliedTo) {
     return { ...message.repliedTo };
   }
-  if (!message.replyToId) {
-    return undefined;
+  let replyToId = message.replyToId;
+  if (!replyToId && message.messageId) {
+    const fetchedMessage = await fetchSerchatMessageWithReply(
+      serchat,
+      message.serverId,
+      message.channelId,
+      message.messageId,
+    );
+    if (fetchedMessage?.repliedTo) {
+      return { ...fetchedMessage.repliedTo };
+    }
+    replyToId = fetchedMessage?.replyToId;
   }
 
+  if (!replyToId) {
+    return undefined;
+  }
   try {
     return await fetchSerchatReplyPreview(
       serchat,
       message.serverId,
       message.channelId,
-      message.replyToId,
+      replyToId,
     );
   } catch (err) {
-    console.error(`Failed to fetch replied-to message ${message.replyToId}:`, err);
+    console.error(`Failed to fetch replied-to message ${replyToId}:`, err);
     return undefined;
   }
 }
