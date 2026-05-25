@@ -396,6 +396,7 @@ describe('Bridge Bot Utility Tests', () => {
       channel: { id: 'DC_FORWARD' },
       content: 'Hello world! <@545562211393732618> and <@999999999>',
       id: 'm1',
+      stickers: { size: 0 },
       attachments: {
         size: 1,
         values: () => [{ url: 'https://cdn.discordapp.com/attachments/123/456/test.png' }],
@@ -464,6 +465,7 @@ describe('Bridge Bot Utility Tests', () => {
       content: 'My reply',
       id: 'm-reply',
       reference: { messageId: 'discord-parent' },
+      stickers: { size: 0 },
       attachments: { size: 0, values: () => [] },
       mentions: {
         members: { get: () => undefined },
@@ -485,6 +487,55 @@ describe('Bridge Bot Utility Tests', () => {
         'https://ser.chat',
         'https://cdn.discordapp.com/attachments/reply/image.png',
       ],
+    });
+  });
+
+  it('should quote only the direct Discord reply target when the parent contains an older bridge quote', async () => {
+    await db.run(
+      'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ['DC_FORWARD', 'DS1', 'SC_FORWARD', 'SS1', 'dw1', 'dt1', 'sw1'],
+    );
+
+    serchat.webhooks.executeWebhook = vi.fn().mockResolvedValue({ id: 'sw_msg_id' });
+
+    const repliedTo = {
+      author: { username: 'reply-user' },
+      member: { displayName: 'Reply User' },
+      content: '> **Original User**: older message\nOnly this direct parent should show',
+      attachments: {
+        values: () => [],
+      },
+      mentions: {
+        members: { get: () => undefined },
+        users: { get: () => undefined },
+      },
+    };
+
+    const mockMsg = {
+      author: { bot: false, username: 'test-user', displayAvatarURL: () => 'avatar-url' },
+      channel: {
+        id: 'DC_FORWARD',
+        messages: { fetch: vi.fn().mockResolvedValue(repliedTo) },
+      },
+      content: 'My reply',
+      id: 'm-reply-nested',
+      reference: { messageId: 'discord-parent' },
+      stickers: { size: 0 },
+      attachments: { size: 0, values: () => [] },
+      mentions: {
+        members: { get: () => undefined },
+        users: { get: () => undefined },
+      },
+    };
+
+    const discordMessageCreate = discordEvents['messageCreate'];
+    expect(discordMessageCreate).toBeDefined();
+    await discordMessageCreate(mockMsg as unknown);
+
+    expect(serchat.webhooks.executeWebhook).toHaveBeenCalledWith('sw1', {
+      content: '> **Reply User**: Only this direct parent should show\nMy reply',
+      username: 'test-user',
+      avatarUrl: 'avatar-url',
     });
   });
 
@@ -525,6 +576,7 @@ describe('Bridge Bot Utility Tests', () => {
       id: 'm-forward',
       reference: { messageId: 'discord-forwarded-parent', type: 1 },
       messageSnapshots: { first: () => forwarded },
+      stickers: { size: 0 },
       attachments: { size: 0, values: () => [] },
       mentions: {
         members: { get: () => undefined },
@@ -633,6 +685,45 @@ describe('Bridge Bot Utility Tests', () => {
     const mapped = await db.get('SELECT * FROM message_map WHERE source_message_id = "sm2"');
     expect(mapped).toBeDefined();
     expect(mapped.target_webhook_message_id).toBe('dw_msg_id');
+  });
+
+  it('should quote only the direct Serchat reply target when the parent contains an older bridge quote', async () => {
+    await db.run(
+      'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ['DC_FORWARD_NESTED', 'DS1', 'SC_FORWARD_NESTED', 'SS1', 'dw3', 'dt3', 'sw3'],
+    );
+
+    mockWebhookSend.mockClear();
+
+    const serchatMessageCreate = serchatEvents['messageCreate'];
+    expect(serchatMessageCreate).toBeDefined();
+
+    const mockMsg = {
+      senderId: 'user1',
+      senderUsername: 'test-user',
+      serverId: 'SS1',
+      channelId: 'SC_FORWARD_NESTED',
+      text: 'My Serchat reply',
+      messageId: 'sm-nested',
+      repliedTo: {
+        messageId: 'parent-nested',
+        senderId: 'parent-user-id',
+        senderUsername: 'Parent User',
+        text: '> **Original User**: older message\nOnly this direct parent should show',
+      },
+      attachments: [],
+      isWebhook: false,
+      hasAttachments: () => false,
+    };
+
+    await serchatMessageCreate(mockMsg);
+
+    expect(mockWebhookSend).toHaveBeenCalledWith({
+      content: '> **Parent User**: Only this direct parent should show\nMy Serchat reply',
+      username: 'test-user',
+      avatarURL: 'http://localhostapi-avatar-url',
+      allowedMentions: { parse: [] },
+    });
   });
 
   it('should edit the Serchat webhook message when a bridged Discord message is edited', async () => {
@@ -969,6 +1060,7 @@ describe('Bridge Bot Utility Tests', () => {
       channel: { id: 'DC_FORWARD' },
       content: 'I sent a poll!',
       id: 'm-poll',
+      stickers: { size: 0 },
       poll: {},
     };
 

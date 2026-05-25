@@ -7,6 +7,7 @@ import {
 } from 'serchat.ts';
 import { db, EXPIRY_MS, refreshWebhookCache, purgeMessageMap, isRateLimited } from './db';
 import { ensureDiscordWebhook } from './discord-handlers';
+import { stripLeadingBridgeQuote } from './message-format';
 
 let discordClientGlobal: DiscordClient;
 let serchatClientGlobal: SerchatClient;
@@ -17,7 +18,7 @@ export async function ensureSerchatWebhook(
   serverId: string,
   channelId: string,
 ): Promise<string> {
-  const existing = await db.get(
+  const existing = await db!.get(
     'SELECT serchat_webhook_id FROM bridges WHERE serchat_channel_id = ? LIMIT 1',
     [channelId],
   );
@@ -79,7 +80,7 @@ export async function getSerchatUser(
       .getRest()
       .get<{ displayName?: string | null; username?: string }>(`/profile/${userId}`);
     const data = unwrap(profile);
-    if (data && data.username) {
+    if (data.username) {
       const resolved = {
         displayName: data.displayName ?? null,
         username: data.username,
@@ -138,7 +139,7 @@ export async function getSerchatEmoji(
       .getRest()
       .get<{ name: string }>(`/emojis/${emojiId}`);
     const data = unwrap(response);
-    if (data && data.name) {
+    if (data.name) {
       const resolved = { name: data.name };
       serchatEmojiCache.set(emojiId, {
         ...resolved,
@@ -185,7 +186,7 @@ export async function getProfilePicture(
   userId: string,
 ): Promise<string | undefined> {
   const cached = profilePictureCache.get(userId);
-  if (cached && cached.expiresAt > Date.now()) {
+  if (cached !== undefined && cached.expiresAt > Date.now()) {
     if (DEBUG_AVATAR_CACHE) {
       console.log(`[avatar] cache hit for ${userId}: ${cached.url}`);
     }
@@ -199,7 +200,7 @@ export async function getProfilePicture(
       .getRest()
       .get<{ profilePicture?: string | null }>(`/profile/${userId}`);
     const data = unwrap(profile);
-    const raw = data?.profilePicture;
+    const raw = data.profilePicture;
 
     if (DEBUG_AVATAR_CACHE) {
       console.log(`[avatar] raw profilePicture field:`, raw);
@@ -260,7 +261,7 @@ class AllowBridgingCommand extends BotCommand {
     const discordServerId = (interaction.getString('discordServerId') as string).trim();
     const normalizedServerId = serverId.trim().toLowerCase();
 
-    await db.run(
+    await db!.run(
       'INSERT OR IGNORE INTO servers_allowlist (discord_server_id, serchat_server_id, added_by) VALUES (?, ?, "serchat")',
       [discordServerId, normalizedServerId],
     );
@@ -302,7 +303,7 @@ class RemoveBridgeCommand extends BotCommand {
     const serchatChannelId = (interaction.getString('serchatChannelId') as string).trim();
     const normalizedServerId = serverId.trim().toLowerCase();
 
-    const bridge = await db.get(
+    const bridge = await db!.get(
       'SELECT * FROM bridges WHERE discord_channel_id = ? AND serchat_channel_id = ? AND serchat_server_id = ?',
       [discordChannelId, serchatChannelId, normalizedServerId],
     );
@@ -332,14 +333,14 @@ class RemoveBridgeCommand extends BotCommand {
       console.error('Failed to delete Serchat webhook:', e);
     }
 
-    await db.run('DELETE FROM bridges WHERE id = ?', [bridge.id]);
+    await db!.run('DELETE FROM bridges WHERE id = ?', [bridge.id]);
     await purgeMessageMap(String(bridge.discord_channel_id), String(bridge.serchat_channel_id));
     await refreshWebhookCache();
 
     await interaction.reply(`Bridge between Discord and Serchat has been removed.`);
     try {
       const discordChannel = await discordClientGlobal.channels.fetch(discordChannelId);
-      if (discordChannel?.isTextBased() && 'send' in discordChannel) {
+      if (discordChannel !== null && discordChannel.isTextBased() && 'send' in discordChannel) {
         await discordChannel.send(`Bridge between Discord and Serchat has been removed.`);
       }
     } catch (e: unknown) {
@@ -376,7 +377,7 @@ class AcceptBridgeCommand extends BotCommand {
     const normalizedServerId = serverId.trim().toLowerCase();
 
     const cutoff = Date.now() - EXPIRY_MS;
-    const request = await db.get(
+    const request = await db!.get(
       'SELECT * FROM bridge_requests WHERE id = ? AND serchat_channel_id = ? AND serchat_server_id = ? AND status = "pending_serchat" AND created_at >= ?',
       [requestId, interaction.channelId, normalizedServerId, cutoff],
     );
@@ -396,15 +397,15 @@ class AcceptBridgeCommand extends BotCommand {
     activeSetups.add(setupKey);
 
     try {
-      await db.run('BEGIN EXCLUSIVE TRANSACTION');
+      await db!.run('BEGIN EXCLUSIVE TRANSACTION');
       try {
-        const bridgeExists = await db.get(
+        const bridgeExists = await db!.get(
           'SELECT id FROM bridges WHERE discord_channel_id = ? OR serchat_channel_id = ?',
           [request.discord_channel_id, request.serchat_channel_id],
         );
         if (bridgeExists) {
-          await db.run('DELETE FROM bridge_requests WHERE id = ?', [request.id]);
-          await db.run('COMMIT');
+          await db!.run('DELETE FROM bridge_requests WHERE id = ?', [request.id]);
+          await db!.run('COMMIT');
           await interaction.reply('Bridge already exists for one of these channels.');
           return;
         }
@@ -419,7 +420,7 @@ class AcceptBridgeCommand extends BotCommand {
           String(request.serchat_channel_id),
         );
 
-        await db.run(
+        await db!.run(
           `INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id)
            VALUES (?, ?, ?, ?, ?, ?, ?)`,
           [
@@ -433,10 +434,10 @@ class AcceptBridgeCommand extends BotCommand {
           ],
         );
 
-        await db.run('DELETE FROM bridge_requests WHERE id = ?', [request.id]);
-        await db.run('COMMIT');
+        await db!.run('DELETE FROM bridge_requests WHERE id = ?', [request.id]);
+        await db!.run('COMMIT');
       } catch (transactionErr) {
-        await db.run('ROLLBACK');
+        await db!.run('ROLLBACK');
         throw transactionErr;
       }
 
@@ -449,7 +450,7 @@ class AcceptBridgeCommand extends BotCommand {
         const discordChannel = await discordClientGlobal.channels.fetch(
           String(request.discord_channel_id),
         );
-        if (discordChannel?.isTextBased() && 'send' in discordChannel) {
+        if (discordChannel !== null && discordChannel.isTextBased() && 'send' in discordChannel) {
           await discordChannel.send(`Bridge active between Discord and Serchat.`);
         }
       } catch (e: unknown) {
@@ -492,9 +493,9 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
     if (msg.poll) return;
     if (msg.stickerId) return;
 
-    if (!msg.text?.trim() && !msg.hasAttachments()) return;
+    if (!msg.text.trim() && !msg.hasAttachments()) return;
 
-    const content = msg.text?.trim().toLowerCase();
+    const content = msg.text.trim().toLowerCase();
 
     if (content === 'accept') {
       const isAdmin = await serchat.hasPermission(msg.serverId, msg.senderId, 'administrator');
@@ -504,7 +505,7 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
       }
 
       const cutoff = Date.now() - EXPIRY_MS;
-      const request = await db.get(
+      const request = await db!.get(
         'SELECT * FROM bridge_requests WHERE serchat_channel_id = ? AND serchat_server_id = ? AND status = "pending_serchat" AND created_at >= ?',
         [msg.channelId.trim(), msg.serverId.trim().toLowerCase(), cutoff],
       );
@@ -518,15 +519,15 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
         activeSetups.add(setupKey);
 
         try {
-          await db.run('BEGIN EXCLUSIVE TRANSACTION');
+          await db!.run('BEGIN EXCLUSIVE TRANSACTION');
           try {
-            const bridgeExists = await db.get(
+            const bridgeExists = await db!.get(
               'SELECT id FROM bridges WHERE discord_channel_id = ? OR serchat_channel_id = ?',
               [request.discord_channel_id, request.serchat_channel_id],
             );
             if (bridgeExists) {
-              await db.run('DELETE FROM bridge_requests WHERE id = ?', [request.id]);
-              await db.run('COMMIT');
+              await db!.run('DELETE FROM bridge_requests WHERE id = ?', [request.id]);
+              await db!.run('COMMIT');
               await msg.reply('Bridge already exists for one of these channels.');
               return;
             }
@@ -541,7 +542,7 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
               String(request.serchat_channel_id),
             );
 
-            await db.run(
+            await db!.run(
               `INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id)
                VALUES (?, ?, ?, ?, ?, ?, ?)`,
               [
@@ -555,10 +556,10 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
               ],
             );
 
-            await db.run('DELETE FROM bridge_requests WHERE id = ?', [request.id]);
-            await db.run('COMMIT');
+            await db!.run('DELETE FROM bridge_requests WHERE id = ?', [request.id]);
+            await db!.run('COMMIT');
           } catch (transactionErr) {
-            await db.run('ROLLBACK');
+            await db!.run('ROLLBACK');
             throw transactionErr;
           }
 
@@ -569,7 +570,7 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
           );
           try {
             const discordChannel = await discord.channels.fetch(String(request.discord_channel_id));
-            if (discordChannel?.isTextBased() && 'send' in discordChannel) {
+            if (discordChannel !== null && discordChannel.isTextBased() && 'send' in discordChannel) {
               await discordChannel.send(`Bridge active between Discord and Serchat.`);
             }
           } catch (e: unknown) {
@@ -587,7 +588,7 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
       return;
     }
 
-    const bridges = await db.all('SELECT * FROM bridges WHERE serchat_channel_id = ?', [
+    const bridges = await db!.all('SELECT * FROM bridges WHERE serchat_channel_id = ?', [
       msg.channelId,
     ]);
     if (bridges.length === 0) return;
@@ -618,28 +619,25 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
             `/servers/${msg.serverId}/channels/${msg.channelId}/messages/${msg.replyToId}`
           );
         const data = unwrap(response);
-        if (data && data.message) {
-          let resolvedUsername = data.message.senderUsername;
-          if (data.message.isWebhook && data.message.webhookUsername) {
-            resolvedUsername = data.message.webhookUsername;
-          } else if (!resolvedUsername && data.message.senderId) {
-            const user = await getSerchatUser(serchat, data.message.senderId);
-            if (user) {
-              resolvedUsername = user.displayName || user.username;
-            }
+        let resolvedUsername = data.message.senderUsername;
+        if (data.message.isWebhook && data.message.webhookUsername) {
+          resolvedUsername = data.message.webhookUsername;
+        } else if (!resolvedUsername && data.message.senderId) {
+          const user = await getSerchatUser(serchat, data.message.senderId);
+          if (user) {
+            resolvedUsername = user.displayName || user.username;
           }
-          repliedTo = {
-            messageId: data.message.messageId || data.message._id || '',
-            senderId: data.message.senderId,
-            senderUsername: resolvedUsername || 'User',
-            text: data.message.text,
-          };
         }
+        repliedTo = {
+          messageId: data.message.messageId || data.message._id || '',
+          senderId: data.message.senderId,
+          senderUsername: resolvedUsername || 'User',
+          text: data.message.text,
+        };
       } catch (err) {
         console.error(`Failed to fetch replied-to message ${msg.replyToId}:`, err);
       }
     }
-
     if (repliedTo) {
       if (!repliedTo.senderUsername && repliedTo.senderId) {
         const user = await getSerchatUser(serchat, repliedTo.senderId);
@@ -649,7 +647,9 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
           repliedTo.senderUsername = 'User';
         }
       }
-      let repliedContent = await resolveSerchatMentions(serchat, repliedTo.text || '');
+      let repliedContent = stripLeadingBridgeQuote(
+        await resolveSerchatMentions(serchat, repliedTo.text || ''),
+      );
       repliedContent = await resolveSerchatEmojis(serchat, repliedContent);
       finalContent = `> **${repliedTo.senderUsername}**: ${repliedContent.replace(/\n/g, '\n> ')}\n${finalContent}`;
     }
@@ -678,7 +678,7 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
           allowedMentions: { parse: [] },
         });
 
-        await db.run(
+        await db!.run(
           `INSERT INTO message_map (source_platform, source_message_id, target_platform, target_channel_id, target_webhook_message_id) VALUES (?, ?, ?, ?, ?)`,
           ['serchat', msg.messageId, 'discord', bridge.discord_channel_id, response.id],
         );
@@ -689,7 +689,7 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
   });
 
   serchat.on('messageUpdate', async (payload) => {
-    const mappings = await db.all(
+    const mappings = await db!.all(
       'SELECT * FROM message_map WHERE source_platform = "serchat" AND source_message_id = ?',
       [payload.messageId],
     );
@@ -699,7 +699,7 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
     content = await resolveSerchatEmojis(serchat, content);
     for (const map of mappings) {
       try {
-        const bridge = await db.get(
+        const bridge = await db!.get(
           'SELECT discord_webhook_id, discord_webhook_token FROM bridges WHERE discord_channel_id = ?',
           [map.target_channel_id],
         );
@@ -717,7 +717,7 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
   });
 
   serchat.on('messageDelete', async (payload) => {
-    const mappings = await db.all(
+    const mappings = await db!.all(
       'SELECT * FROM message_map WHERE source_platform = "serchat" AND source_message_id = ?',
       [payload.messageId],
     );
@@ -725,7 +725,7 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
 
     for (const map of mappings) {
       try {
-        const bridge = await db.get(
+        const bridge = await db!.get(
           'SELECT discord_webhook_id, discord_webhook_token FROM bridges WHERE discord_channel_id = ?',
           [map.target_channel_id],
         );
@@ -741,14 +741,14 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
       }
     }
 
-    await db.run('DELETE FROM message_map WHERE source_platform = "serchat" AND source_message_id = ?', [
+    await db!.run('DELETE FROM message_map WHERE source_platform = "serchat" AND source_message_id = ?', [
       payload.messageId,
     ]);
   });
 
   serchat.on('messageBulkDelete', async (payload) => {
     for (const messageId of payload.messageIds) {
-      const mappings = await db.all(
+      const mappings = await db!.all(
         'SELECT * FROM message_map WHERE source_platform = "serchat" AND source_message_id = ?',
         [messageId],
       );
@@ -756,7 +756,7 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
 
       for (const map of mappings) {
         try {
-          const bridge = await db.get(
+          const bridge = await db!.get(
             'SELECT discord_webhook_id, discord_webhook_token FROM bridges WHERE discord_channel_id = ?',
             [map.target_channel_id],
           );
@@ -772,7 +772,7 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
         }
       }
 
-      await db.run(
+      await db!.run(
         'DELETE FROM message_map WHERE source_platform = "serchat" AND source_message_id = ?',
         [messageId],
       );

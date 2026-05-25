@@ -13,6 +13,7 @@ import {
   purgeMessageMap,
   isRateLimited,
 } from './db';
+import { stripLeadingBridgeQuote } from './message-format';
 
 const MAX_NO_EMBEDS_URLS = 25;
 const DISCORD_FORWARD_REFERENCE_TYPE = 1;
@@ -108,7 +109,7 @@ async function deleteSerchatMessageForDiscordMap(
   const webhookId =
     map.serchat_webhook_id ??
     (
-      await db.get('SELECT serchat_webhook_id FROM bridges WHERE serchat_channel_id = ?', [
+      await db!.get('SELECT serchat_webhook_id FROM bridges WHERE serchat_channel_id = ?', [
         map.target_channel_id,
       ])
     )?.serchat_webhook_id;
@@ -126,7 +127,7 @@ async function deleteSerchatMessageForDiscordMap(
     }
   }
 
-  await db.run(
+  await db!.run(
     'DELETE FROM message_map WHERE source_platform = "discord" AND source_message_id = ? AND target_channel_id = ?',
     [map.source_message_id, map.target_channel_id],
   );
@@ -138,7 +139,7 @@ export async function ensureDiscordWebhook(
   discord: DiscordClient,
   channelId: string,
 ): Promise<{ id: string; token: string }> {
-  const existing = await db.get(
+  const existing = await db!.get(
     'SELECT discord_webhook_id, discord_webhook_token FROM bridges WHERE discord_channel_id = ? LIMIT 1',
     [channelId],
   );
@@ -178,7 +179,7 @@ export function setupDiscordHandlers(discord: DiscordClient, serchat: SerchatCli
     if (commandName === 'allow-bridging') {
       const serchatServerId = interaction.options.getString('serchatserverid', true).trim().toLowerCase();
       const normalizedGuildId = guildId.trim();
-      await db.run(
+      await db!.run(
         'INSERT OR IGNORE INTO servers_allowlist (discord_server_id, serchat_server_id, added_by) VALUES (?, ?, "discord")',
         [normalizedGuildId, serchatServerId],
       );
@@ -209,7 +210,7 @@ export function setupDiscordHandlers(discord: DiscordClient, serchat: SerchatCli
         return;
       }
 
-      const result = await db.run(
+      const result = await db!.run(
         `INSERT INTO bridge_requests (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, status, initiated_by, created_at)
          VALUES (?, ?, ?, ?, 'pending_serchat', 'discord', ?)`,
         [discordChannelId, normalizedGuildId, serchatChannelId, serchatServerId, Date.now()],
@@ -239,7 +240,7 @@ export function setupDiscordHandlers(discord: DiscordClient, serchat: SerchatCli
 
       await interaction.deferReply();
 
-      const bridge = await db.get(
+      const bridge = await db!.get(
         'SELECT * FROM bridges WHERE discord_channel_id = ? AND serchat_channel_id = ? AND discord_server_id = ?',
         [discordChannelId, serchatChannelId, normalizedGuildId],
       );
@@ -269,7 +270,7 @@ export function setupDiscordHandlers(discord: DiscordClient, serchat: SerchatCli
         console.error('Failed to delete Serchat webhook:', e);
       }
 
-      await db.run('DELETE FROM bridges WHERE id = ?', [bridge.id]);
+      await db!.run('DELETE FROM bridges WHERE id = ?', [bridge.id]);
       await purgeMessageMap(String(bridge.discord_channel_id), String(bridge.serchat_channel_id));
       await refreshWebhookCache();
 
@@ -293,12 +294,12 @@ export function setupDiscordHandlers(discord: DiscordClient, serchat: SerchatCli
 
     if (msg.webhookId && knownDiscordWebhooks.has(msg.webhookId)) return;
 
-    if (msg.stickers && msg.stickers.size > 0) return;
+    if (msg.stickers.size > 0) return;
     if (msg.poll) return;
 
     if (isRateLimited(`discord-${msg.channel.id}`)) return;
 
-    const bridges = await db.all('SELECT * FROM bridges WHERE discord_channel_id = ?', [
+    const bridges = await db!.all('SELECT * FROM bridges WHERE discord_channel_id = ?', [
       msg.channel.id,
     ]);
     if (bridges.length === 0) return;
@@ -323,7 +324,9 @@ export function setupDiscordHandlers(discord: DiscordClient, serchat: SerchatCli
       try {
         const repliedTo = await msg.channel.messages.fetch(msg.reference.messageId);
         noEmbedsUrls = collectNoEmbedsUrlsFromDiscordMessage(repliedTo);
-        const repliedContent = resolveDiscordMentions(repliedTo, repliedTo.content || '');
+        const repliedContent = stripLeadingBridgeQuote(
+          resolveDiscordMentions(repliedTo, repliedTo.content || ''),
+        );
         const quotedReply = quoteDiscordMessage(
           repliedTo.member?.displayName || repliedTo.author.username,
           repliedContent,
@@ -349,7 +352,7 @@ export function setupDiscordHandlers(discord: DiscordClient, serchat: SerchatCli
           ...(noEmbedsUrls.length > 0 ? { noEmbedsUrls } : {}),
         });
 
-        await db.run(
+        await db!.run(
           `INSERT INTO message_map (source_platform, source_message_id, target_platform, target_channel_id, target_webhook_message_id) VALUES (?, ?, ?, ?, ?)`,
           ['discord', msg.id, 'serchat', bridge.serchat_channel_id, response.id],
         );
@@ -364,7 +367,7 @@ export function setupDiscordHandlers(discord: DiscordClient, serchat: SerchatCli
     if (msg === null) return;
     if (msg.author?.bot) return;
 
-    const mappings = await db.all(
+    const mappings = await db!.all(
       'SELECT * FROM message_map WHERE source_platform = "discord" AND source_message_id = ?',
       [msg.id],
     );
@@ -381,7 +384,7 @@ export function setupDiscordHandlers(discord: DiscordClient, serchat: SerchatCli
 
     for (const map of mappings) {
       try {
-        const bridge = await db.get(
+        const bridge = await db!.get(
           'SELECT serchat_webhook_id FROM bridges WHERE serchat_channel_id = ?',
           [map.target_channel_id],
         );
@@ -399,7 +402,7 @@ export function setupDiscordHandlers(discord: DiscordClient, serchat: SerchatCli
   });
 
   discord.on('messageDelete', async (msg) => {
-    const mappings = await db.all(
+    const mappings = await db!.all(
       'SELECT * FROM message_map WHERE source_platform = "discord" AND source_message_id = ?',
       [msg.id],
     );
@@ -416,7 +419,7 @@ export function setupDiscordHandlers(discord: DiscordClient, serchat: SerchatCli
 
   discord.on('messageDeleteBulk', async (messages) => {
     for (const msg of messages.values()) {
-      const mappings = await db.all(
+      const mappings = await db!.all(
         'SELECT * FROM message_map WHERE source_platform = "discord" AND source_message_id = ?',
         [msg.id],
       );
