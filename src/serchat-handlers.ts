@@ -181,6 +181,33 @@ export async function getSerchatEmoji(
   return null;
 }
 
+export async function resolveSerchatEmojis(serchat: SerchatClient, content: string): Promise<string> {
+  if (!content) return '';
+  const regex = /<emoji:([a-f\d]{24})>/gi;
+  const matches = Array.from(content.matchAll(regex));
+  if (matches.length === 0) return content;
+
+  const uniqueIds = Array.from(new Set(matches.map((m) => m[1])));
+
+  const resolvedEmojisMap = new Map<string, { name: string }>();
+  await Promise.all(
+    uniqueIds.map(async (id) => {
+      const emoji = await getSerchatEmoji(serchat, id);
+      if (emoji) {
+        resolvedEmojisMap.set(id.toLowerCase(), emoji);
+      }
+    }),
+  );
+
+  return content.replace(regex, (match, id) => {
+    const emoji = resolvedEmojisMap.get(id.toLowerCase());
+    if (emoji) {
+      return `:${emoji.name}:`;
+    }
+    return match;
+  });
+}
+
 async function fetchSerchatReplyPreview(
   serchat: SerchatClient,
   serverId: string,
@@ -737,8 +764,7 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
     let attachment_urls: string[] = [];
     if (msg.hasAttachments()) {
       attachment_urls = msg.attachments!
-        .map((a) => msg.getAttachmentUrl(a))
-        .join('\n');
+        .map((a) => msg.getAttachmentUrl(a));
     }
 
     if (finalContent.length > 1990) {
@@ -751,13 +777,16 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
           id: String(bridge.discord_webhook_id),
           token: String(bridge.discord_webhook_token),
         });
-        const response = await webhookClient.send({
+        const payload = {
           content: finalContent || ' ',
           username,
           avatarURL: avatarUrl,
           allowedMentions: { parse: [] },
-          files: attachment_urls.map((a) => new AttachmentBuilder(a))
-        });
+          ...(attachment_urls.length > 0
+            ? { files: attachment_urls.map((a) => new AttachmentBuilder(a)) }
+            : {}),
+        };
+        const response = await webhookClient.send(payload);
 
         await db!.run(
           `INSERT INTO message_map (source_platform, source_message_id, target_platform, target_channel_id, target_webhook_message_id) VALUES (?, ?, ?, ?, ?)`,

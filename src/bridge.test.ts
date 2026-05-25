@@ -23,6 +23,12 @@ const { mockSerchatClientConstructor } = vi.hoisted(() => ({
 
 vi.mock('discord.js', () => {
   return {
+    AttachmentBuilder: class {
+      attachment: string;
+      constructor(attachment: string) {
+        this.attachment = attachment;
+      }
+    },
     Client: class {
       login = vi.fn();
       on = vi.fn();
@@ -489,7 +495,7 @@ describe('Bridge Bot Utility Tests', () => {
 
     expect(serchat.webhooks.executeWebhook).toHaveBeenCalledWith('sw1', {
       content:
-        '> **Reply User**: Look at https://example.com/page and https://ser.chat\nMy reply',
+        '> **Reply User**: Look at <https://example.com/page> and <https://ser.chat>\nMy reply',
       username: 'test-user',
       avatarUrl: 'avatar-url',
       noEmbedsUrls: [
@@ -648,10 +654,15 @@ describe('Bridge Bot Utility Tests', () => {
     await serchatMessageCreate(mockMsg);
 
     expect(mockWebhookSend).toHaveBeenCalledWith({
-      content: '> **Display-reply-user-id**: Replying to you!\nHello Serchat! @Display-690cd6f250f11be9566ea1ea and :Emoji-6a00c3c239e601dbb84880f5:\nhttp://localhost/api/v1/files/download/file123.png',
+      content: '> **Display-reply-user-id**: Replying to you!\nHello Serchat! @Display-690cd6f250f11be9566ea1ea and :Emoji-6a00c3c239e601dbb84880f5:',
       username: 'test-user',
       avatarURL: 'http://localhostapi-avatar-url',
       allowedMentions: { parse: [] },
+      files: [
+        {
+          attachment: 'http://localhost/api/v1/files/download/file123.png',
+        },
+      ],
     });
 
     const mapped = await db!.get('SELECT * FROM message_map WHERE source_message_id = "sm1"');
