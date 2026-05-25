@@ -82,6 +82,27 @@ function quoteDiscordMessage(label: string, content: string): string {
   return `> **${label}**: ${quotedContent.replace(/\n/g, '\n> ')}`;
 }
 
+async function prependDiscordReplyContext(msg: Message, content: string): Promise<string> {
+  if (!msg.reference?.messageId) {
+    return content;
+  }
+
+  try {
+    const repliedTo = await msg.channel.messages.fetch(msg.reference.messageId);
+    const repliedContent = stripLeadingBridgeQuote(
+      resolveDiscordMentions(repliedTo, repliedTo.content || ''),
+    );
+    const quotedReply = quoteDiscordMessage(
+      repliedTo.member?.displayName || repliedTo.author.username,
+      repliedContent,
+    );
+    return content ? `${quotedReply}\n${content}` : quotedReply;
+  } catch (e: unknown) {
+    console.error('[Discord->Serchat] Failed to fetch replied message context:', e);
+    return content;
+  }
+}
+
 async function fetchDiscordMessageIfPartial(
   msg: DiscordBridgeMessage,
 ): Promise<DiscordBridgeMessage | null> {
@@ -373,7 +394,10 @@ export function setupDiscordHandlers(discord: DiscordClient, serchat: SerchatCli
     );
     if (mappings.length === 0) return;
 
-    let content = resolveDiscordMentions(msg, msg.content || ' ');
+    let content = await prependDiscordReplyContext(
+      msg as Message,
+      resolveDiscordMentions(msg, msg.content || ' '),
+    );
     content = appendDiscordAttachmentLinks(content, msg);
     if (content.length > 1990) {
       content = content.substring(0, 1990) + '…';

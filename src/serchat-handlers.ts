@@ -4,6 +4,7 @@ import {
   BotCommand,
   Interaction as SerchatInteraction,
   unwrap,
+  type MessageUpdatePayload,
 } from 'serchat.ts';
 import { db, EXPIRY_MS, refreshWebhookCache, purgeMessageMap, isRateLimited } from './db';
 import { ensureDiscordWebhook } from './discord-handlers';
@@ -126,6 +127,20 @@ export async function resolveSerchatMentions(serchat: SerchatClient, content: st
 
 const serchatEmojiCache = new CappedMap<string, { name: string; expiresAt: number }>(500);
 
+interface SerchatReplyPreview {
+  messageId: string;
+  senderId: string;
+  senderUsername?: string;
+  text: string;
+}
+
+interface SerchatMessageWithReply {
+  serverId: string;
+  channelId: string;
+  replyToId?: string;
+  repliedTo?: SerchatReplyPreview;
+}
+
 export async function getSerchatEmoji(
   serchat: SerchatClient,
   emojiId: string,
@@ -151,6 +166,90 @@ export async function getSerchatEmoji(
     console.error(`Failed to fetch custom emoji name for ${emojiId}:`, e);
   }
   return null;
+}
+
+async function fetchSerchatReplyPreview(
+  serchat: SerchatClient,
+  serverId: string,
+  channelId: string,
+  messageId: string,
+): Promise<SerchatReplyPreview | undefined> {
+  const response = await serchat
+    .getRest()
+    .get<{
+      message: {
+        messageId: string;
+        _id?: string;
+        senderId: string;
+        senderUsername?: string;
+        isWebhook?: boolean;
+        webhookUsername?: string;
+        text: string;
+      };
+    }>(`/servers/${serverId}/channels/${channelId}/messages/${messageId}`);
+  const data = unwrap(response);
+  let resolvedUsername = data.message.senderUsername;
+  if (data.message.isWebhook && data.message.webhookUsername) {
+    resolvedUsername = data.message.webhookUsername;
+  } else if (!resolvedUsername && data.message.senderId) {
+    const user = await getSerchatUser(serchat, data.message.senderId);
+    if (user) {
+      resolvedUsername = user.displayName || user.username;
+    }
+  }
+
+  return {
+    messageId: data.message.messageId || data.message._id || '',
+    senderId: data.message.senderId,
+    senderUsername: resolvedUsername || 'User',
+    text: data.message.text,
+  };
+}
+
+async function resolveSerchatReplyPreview(
+  serchat: SerchatClient,
+  message: SerchatMessageWithReply,
+): Promise<SerchatReplyPreview | undefined> {
+  if (message.repliedTo) {
+    return { ...message.repliedTo };
+  }
+  if (!message.replyToId) {
+    return undefined;
+  }
+
+  try {
+    return await fetchSerchatReplyPreview(
+      serchat,
+      message.serverId,
+      message.channelId,
+      message.replyToId,
+    );
+  } catch (err) {
+    console.error(`Failed to fetch replied-to message ${message.replyToId}:`, err);
+    return undefined;
+  }
+}
+
+async function prependSerchatReplyContext(
+  serchat: SerchatClient,
+  message: SerchatMessageWithReply,
+  content: string,
+): Promise<string> {
+  const repliedTo = await resolveSerchatReplyPreview(serchat, message);
+  if (!repliedTo) {
+    return content;
+  }
+
+  if (!repliedTo.senderUsername && repliedTo.senderId) {
+    const user = await getSerchatUser(serchat, repliedTo.senderId);
+    repliedTo.senderUsername = user ? user.displayName || user.username : 'User';
+  }
+
+  let repliedContent = stripLeadingBridgeQuote(
+    await resolveSerchatMentions(serchat, repliedTo.text || ''),
+  );
+  repliedContent = await resolveSerchatEmojis(serchat, repliedContent);
+  return `> **${repliedTo.senderUsername || 'User'}**: ${repliedContent.replace(/\n/g, '\n> ')}\n${content}`;
 }
 
 export async function resolveSerchatEmojis(serchat: SerchatClient, content: string): Promise<string> {
@@ -600,59 +699,7 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
 
     let finalContent = await resolveSerchatMentions(serchat, msg.text || '');
     finalContent = await resolveSerchatEmojis(serchat, finalContent);
-    let repliedTo = msg.repliedTo;
-    if (!repliedTo && msg.replyToId) {
-      try {
-        const response = await serchat
-          .getRest()
-          .get<{
-            message: {
-              messageId: string;
-              _id?: string;
-              senderId: string;
-              senderUsername?: string;
-              isWebhook?: boolean;
-              webhookUsername?: string;
-              text: string;
-            };
-          }>(
-            `/servers/${msg.serverId}/channels/${msg.channelId}/messages/${msg.replyToId}`
-          );
-        const data = unwrap(response);
-        let resolvedUsername = data.message.senderUsername;
-        if (data.message.isWebhook && data.message.webhookUsername) {
-          resolvedUsername = data.message.webhookUsername;
-        } else if (!resolvedUsername && data.message.senderId) {
-          const user = await getSerchatUser(serchat, data.message.senderId);
-          if (user) {
-            resolvedUsername = user.displayName || user.username;
-          }
-        }
-        repliedTo = {
-          messageId: data.message.messageId || data.message._id || '',
-          senderId: data.message.senderId,
-          senderUsername: resolvedUsername || 'User',
-          text: data.message.text,
-        };
-      } catch (err) {
-        console.error(`Failed to fetch replied-to message ${msg.replyToId}:`, err);
-      }
-    }
-    if (repliedTo) {
-      if (!repliedTo.senderUsername && repliedTo.senderId) {
-        const user = await getSerchatUser(serchat, repliedTo.senderId);
-        if (user) {
-          repliedTo.senderUsername = user.displayName || user.username;
-        } else {
-          repliedTo.senderUsername = 'User';
-        }
-      }
-      let repliedContent = stripLeadingBridgeQuote(
-        await resolveSerchatMentions(serchat, repliedTo.text || ''),
-      );
-      repliedContent = await resolveSerchatEmojis(serchat, repliedContent);
-      finalContent = `> **${repliedTo.senderUsername}**: ${repliedContent.replace(/\n/g, '\n> ')}\n${finalContent}`;
-    }
+    finalContent = await prependSerchatReplyContext(serchat, msg, finalContent);
 
     if (msg.hasAttachments()) {
       const urls = msg.attachments!
@@ -697,6 +744,11 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
 
     let content = await resolveSerchatMentions(serchat, payload.text || ' ');
     content = await resolveSerchatEmojis(serchat, content);
+    content = await prependSerchatReplyContext(
+      serchat,
+      payload as MessageUpdatePayload & SerchatMessageWithReply,
+      content,
+    );
     for (const map of mappings) {
       try {
         const bridge = await db!.get(

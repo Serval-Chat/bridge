@@ -172,10 +172,10 @@ for (const call of (serchat.on as unknown as MockOn).mock.calls) {
 describe('Bridge Bot Utility Tests', () => {
   beforeEach(async () => {
     await initDB();
-    await db.exec('DELETE FROM servers_allowlist');
-    await db.exec('DELETE FROM bridges');
-    await db.exec('DELETE FROM bridge_requests');
-    await db.exec('DELETE FROM message_map');
+    await db!.exec('DELETE FROM servers_allowlist');
+    await db!.exec('DELETE FROM bridges');
+    await db!.exec('DELETE FROM bridge_requests');
+    await db!.exec('DELETE FROM message_map');
     knownSerchatWebhooks.clear();
     knownDiscordWebhooks.clear();
     vi.clearAllMocks();
@@ -186,17 +186,17 @@ describe('Bridge Bot Utility Tests', () => {
   });
 
   it('hasMutualAllowlist should return true only if both sides explicitly allowed each other', async () => {
-    await db.run(
+    await db!.run(
       'INSERT INTO servers_allowlist (discord_server_id, serchat_server_id, added_by) VALUES (?, ?, ?)',
       ['D1', 's1', 'discord'],
     );
-    await db.run(
+    await db!.run(
       'INSERT INTO servers_allowlist (discord_server_id, serchat_server_id, added_by) VALUES (?, ?, ?)',
       ['D1', 's1', 'serchat'],
     );
     expect(await hasMutualAllowlist('D1', 'S1')).toBe(true);
 
-    await db.run(
+    await db!.run(
       'INSERT INTO servers_allowlist (discord_server_id, serchat_server_id, added_by) VALUES (?, ?, ?)',
       ['D2', 's2', 'discord'],
     );
@@ -218,11 +218,11 @@ describe('Bridge Bot Utility Tests', () => {
   });
 
   it('refreshWebhookCache should populate knownSerchatWebhooks from DB', async () => {
-    await db.run(
+    await db!.run(
       'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ['DC1', 'DS1', 'SC1', 'SS1', 'dw1', 'dt1', 'sw1'],
     );
-    await db.run(
+    await db!.run(
       'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ['DC2', 'DS2', 'SC2', 'SS2', 'dw2', 'dt2', 'sw2'],
     );
@@ -242,7 +242,7 @@ describe('Bridge Bot Utility Tests', () => {
   });
 
   it('ensureDiscordWebhook should return existing webhook if it exists', async () => {
-    await db.run(
+    await db!.run(
       'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ['DC1', 'DS1', 'SC1', 'SS1', 'existing_dw_id', 'existing_dw_token', 'sw1'],
     );
@@ -268,7 +268,7 @@ describe('Bridge Bot Utility Tests', () => {
   });
 
   it('ensureSerchatWebhook should return existing webhook if it exists', async () => {
-    await db.run(
+    await db!.run(
       'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ['DC1', 'DS1', 'SC1', 'SS1', 'dw1', 'dt1', 'existing_sw_id'],
     );
@@ -291,7 +291,7 @@ describe('Bridge Bot Utility Tests', () => {
   });
 
   it('refreshWebhookCache should populate knownDiscordWebhooks from DB', async () => {
-    await db.run(
+    await db!.run(
       'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ['DC1', 'DS1', 'SC1', 'SS1', 'dw1', 'dt1', 'sw1'],
     );
@@ -306,39 +306,39 @@ describe('Bridge Bot Utility Tests', () => {
     const oldTime = now - (EXPIRY_MS + 60 * 1000);
     const newTime = now - 10 * 60 * 1000;
 
-    await db.run(
+    await db!.run(
       'INSERT INTO bridge_requests (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, status, initiated_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ['DC_OLD', 'DS_OLD', 'SC_OLD', 'SS_OLD', 'pending_serchat', 'discord', oldTime],
     );
-    await db.run(
+    await db!.run(
       'INSERT INTO bridge_requests (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, status, initiated_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ['DC_NEW', 'DS_NEW', 'SC_NEW', 'SS_NEW', 'pending_serchat', 'discord', newTime],
     );
 
     await cleanupExpiredRequests();
 
-    const pending = await db.all('SELECT * FROM bridge_requests');
+    const pending = await db!.all('SELECT * FROM bridge_requests');
     expect(pending.length).toBe(1);
     expect(pending[0].discord_channel_id).toBe('DC_NEW');
   });
 
   it('purgeMessageMap should delete message mappings for a removed bridge', async () => {
-    await db.run(
+    await db!.run(
       'INSERT INTO message_map (source_platform, source_message_id, target_platform, target_channel_id, target_webhook_message_id) VALUES (?, ?, ?, ?, ?)',
       ['discord', 'm1', 'serchat', 'SC1', 'wm1'],
     );
-    await db.run(
+    await db!.run(
       'INSERT INTO message_map (source_platform, source_message_id, target_platform, target_channel_id, target_webhook_message_id) VALUES (?, ?, ?, ?, ?)',
       ['serchat', 'm2', 'discord', 'DC1', 'wm2'],
     );
-    await db.run(
+    await db!.run(
       'INSERT INTO message_map (source_platform, source_message_id, target_platform, target_channel_id, target_webhook_message_id) VALUES (?, ?, ?, ?, ?)',
       ['serchat', 'm3', 'discord', 'DC_OTHER', 'wm3'],
     );
 
     await purgeMessageMap('DC1', 'SC1');
 
-    const remaining = await db.all('SELECT * FROM message_map');
+    const remaining = await db!.all('SELECT * FROM message_map');
     expect(remaining.length).toBe(1);
     expect(remaining[0].source_message_id).toBe('m3');
   });
@@ -360,20 +360,20 @@ describe('Bridge Bot Utility Tests', () => {
   });
 
   it('bridges table should enforce unique constraint on discord_channel_id and serchat_channel_id', async () => {
-    await db.run(
+    await db!.run(
       'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ['DC1', 'DS1', 'SC1', 'SS1', 'dw1', 'dt1', 'sw1'],
     );
 
     await expect(
-      db.run(
+      db!.run(
         'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
         ['DC1', 'DS1', 'SC2', 'SS1', 'dw2', 'dt2', 'sw2'],
       ),
     ).rejects.toThrow();
 
     await expect(
-      db.run(
+      db!.run(
         'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
         ['DC2', 'DS1', 'SC1', 'SS1', 'dw2', 'dt2', 'sw2'],
       ),
@@ -381,7 +381,7 @@ describe('Bridge Bot Utility Tests', () => {
   });
 
   it('should forward a Discord message to Serchat via webhook', async () => {
-    await db.run(
+    await db!.run(
       'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ['DC_FORWARD', 'DS1', 'SC_FORWARD', 'SS1', 'dw1', 'dt1', 'sw1'],
     );
@@ -430,13 +430,13 @@ describe('Bridge Bot Utility Tests', () => {
       avatarUrl: 'avatar-url',
     });
 
-    const mapped = await db.get('SELECT * FROM message_map WHERE source_message_id = "m1"');
+    const mapped = await db!.get('SELECT * FROM message_map WHERE source_message_id = "m1"');
     expect(mapped).toBeDefined();
     expect(mapped.target_webhook_message_id).toBe('sw_msg_id');
   });
 
   it('should suppress embeds for URLs from a replied-to Discord message', async () => {
-    await db.run(
+    await db!.run(
       'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ['DC_FORWARD', 'DS1', 'SC_FORWARD', 'SS1', 'dw1', 'dt1', 'sw1'],
     );
@@ -491,7 +491,7 @@ describe('Bridge Bot Utility Tests', () => {
   });
 
   it('should quote only the direct Discord reply target when the parent contains an older bridge quote', async () => {
-    await db.run(
+    await db!.run(
       'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ['DC_FORWARD', 'DS1', 'SC_FORWARD', 'SS1', 'dw1', 'dt1', 'sw1'],
     );
@@ -540,7 +540,7 @@ describe('Bridge Bot Utility Tests', () => {
   });
 
   it('should forward a Discord forwarded-message snapshot to Serchat', async () => {
-    await db.run(
+    await db!.run(
       'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ['DC_FORWARD', 'DS1', 'SC_FORWARD', 'SS1', 'dw1', 'dt1', 'sw1'],
     );
@@ -602,7 +602,7 @@ describe('Bridge Bot Utility Tests', () => {
   });
 
   it('should forward a Serchat message to Discord via webhook', async () => {
-    await db.run(
+    await db!.run(
       'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ['DC_FORWARD', 'DS1', 'SC_FORWARD', 'SS1', 'dw1', 'dt1', 'sw1'],
     );
@@ -644,13 +644,13 @@ describe('Bridge Bot Utility Tests', () => {
       allowedMentions: { parse: [] },
     });
 
-    const mapped = await db.get('SELECT * FROM message_map WHERE source_message_id = "sm1"');
+    const mapped = await db!.get('SELECT * FROM message_map WHERE source_message_id = "sm1"');
     expect(mapped).toBeDefined();
     expect(mapped.target_webhook_message_id).toBe('dw_msg_id');
   });
 
   it('should forward a Serchat message to Discord via webhook and resolve parent webhook name in replies', async () => {
-    await db.run(
+    await db!.run(
       'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ['DC_FORWARD_WEBHOOK', 'DS1', 'SC_FORWARD_WEBHOOK', 'SS1', 'dw2', 'dt2', 'sw2'],
     );
@@ -682,13 +682,13 @@ describe('Bridge Bot Utility Tests', () => {
       allowedMentions: { parse: [] },
     });
 
-    const mapped = await db.get('SELECT * FROM message_map WHERE source_message_id = "sm2"');
+    const mapped = await db!.get('SELECT * FROM message_map WHERE source_message_id = "sm2"');
     expect(mapped).toBeDefined();
     expect(mapped.target_webhook_message_id).toBe('dw_msg_id');
   });
 
   it('should quote only the direct Serchat reply target when the parent contains an older bridge quote', async () => {
-    await db.run(
+    await db!.run(
       'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ['DC_FORWARD_NESTED', 'DS1', 'SC_FORWARD_NESTED', 'SS1', 'dw3', 'dt3', 'sw3'],
     );
@@ -727,11 +727,11 @@ describe('Bridge Bot Utility Tests', () => {
   });
 
   it('should edit the Serchat webhook message when a bridged Discord message is edited', async () => {
-    await db.run(
+    await db!.run(
       'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ['DC_FORWARD', 'DS1', 'SC_FORWARD', 'SS1', 'dw1', 'dt1', 'sw1'],
     );
-    await db.run(
+    await db!.run(
       'INSERT INTO message_map (source_platform, source_message_id, target_platform, target_channel_id, target_webhook_message_id) VALUES (?, ?, ?, ?, ?)',
       ['discord', 'discord-edit-1', 'serchat', 'SC_FORWARD', 'serchat-webhook-message-1'],
     );
@@ -778,12 +778,64 @@ describe('Bridge Bot Utility Tests', () => {
     );
   });
 
-  it('should ignore Discord update events that do not contain editable content', async () => {
-    await db.run(
+  it('should preserve Discord reply context when a bridged Discord message is edited', async () => {
+    await db!.run(
       'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ['DC_FORWARD', 'DS1', 'SC_FORWARD', 'SS1', 'dw1', 'dt1', 'sw1'],
     );
-    await db.run(
+    await db!.run(
+      'INSERT INTO message_map (source_platform, source_message_id, target_platform, target_channel_id, target_webhook_message_id) VALUES (?, ?, ?, ?, ?)',
+      ['discord', 'discord-edit-reply', 'serchat', 'SC_FORWARD', 'serchat-webhook-message-reply'],
+    );
+
+    serchat.webhooks.editWebhookMessage = vi.fn().mockResolvedValue({});
+
+    const repliedTo = {
+      author: { username: 'reply-user' },
+      member: { displayName: 'Reply User' },
+      content: '> **Older User**: old reply\nDirect parent text',
+      attachments: { values: () => [] },
+      mentions: {
+        members: { get: () => undefined },
+        users: { get: () => undefined },
+      },
+    };
+
+    const discordMessageUpdate = discordEvents['messageUpdate'];
+    expect(discordMessageUpdate).toBeDefined();
+    await discordMessageUpdate(
+      {} as unknown,
+      {
+        id: 'discord-edit-reply',
+        author: { bot: false },
+        channel: {
+          messages: { fetch: vi.fn().mockResolvedValue(repliedTo) },
+        },
+        reference: { messageId: 'discord-parent' },
+        content: 'Edited reply body',
+        attachments: { size: 0, values: () => [] },
+        mentions: {
+          members: { get: () => undefined },
+          users: { get: () => undefined },
+        },
+      } as unknown,
+    );
+
+    expect(serchat.webhooks.editWebhookMessage).toHaveBeenCalledWith(
+      'sw1',
+      'serchat-webhook-message-reply',
+      {
+        content: '> **Reply User**: Direct parent text\nEdited reply body',
+      },
+    );
+  });
+
+  it('should ignore Discord update events that do not contain editable content', async () => {
+    await db!.run(
+      'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ['DC_FORWARD', 'DS1', 'SC_FORWARD', 'SS1', 'dw1', 'dt1', 'sw1'],
+    );
+    await db!.run(
       'INSERT INTO message_map (source_platform, source_message_id, target_platform, target_channel_id, target_webhook_message_id) VALUES (?, ?, ?, ?, ?)',
       ['discord', 'discord-edit-empty', 'serchat', 'SC_FORWARD', 'serchat-webhook-message-empty'],
     );
@@ -810,11 +862,11 @@ describe('Bridge Bot Utility Tests', () => {
   });
 
   it('should edit the Discord webhook message when a bridged Serchat message is edited', async () => {
-    await db.run(
+    await db!.run(
       'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ['DC_FORWARD', 'DS1', 'SC_FORWARD', 'SS1', 'dw1', 'dt1', 'sw1'],
     );
-    await db.run(
+    await db!.run(
       'INSERT INTO message_map (source_platform, source_message_id, target_platform, target_channel_id, target_webhook_message_id) VALUES (?, ?, ?, ?, ?)',
       ['serchat', 'serchat-edit-1', 'discord', 'DC_FORWARD', 'discord-webhook-message-1'],
     );
@@ -834,12 +886,44 @@ describe('Bridge Bot Utility Tests', () => {
     });
   });
 
-  it('should delete the Serchat webhook message when a bridged Discord message is deleted', async () => {
-    await db.run(
+  it('should preserve Serchat reply context when a bridged Serchat message is edited', async () => {
+    await db!.run(
       'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ['DC_FORWARD', 'DS1', 'SC_FORWARD', 'SS1', 'dw1', 'dt1', 'sw1'],
     );
-    await db.run(
+    await db!.run(
+      'INSERT INTO message_map (source_platform, source_message_id, target_platform, target_channel_id, target_webhook_message_id) VALUES (?, ?, ?, ?, ?)',
+      ['serchat', 'serchat-edit-reply', 'discord', 'DC_FORWARD', 'discord-webhook-message-reply'],
+    );
+
+    mockWebhookEditMessage.mockClear();
+
+    const serchatMessageUpdate = serchatEvents['messageUpdate'];
+    expect(serchatMessageUpdate).toBeDefined();
+    await serchatMessageUpdate({
+      messageId: 'serchat-edit-reply',
+      serverId: 'SS1',
+      channelId: 'SC_FORWARD',
+      text: 'Edited Serchat reply',
+      repliedTo: {
+        messageId: 'parent-nested',
+        senderId: 'parent-user-id',
+        senderUsername: 'Parent User',
+        text: '> **Older User**: old reply\nDirect parent text',
+      },
+    } as unknown);
+
+    expect(mockWebhookEditMessage).toHaveBeenCalledWith('discord-webhook-message-reply', {
+      content: '> **Parent User**: Direct parent text\nEdited Serchat reply',
+    });
+  });
+
+  it('should delete the Serchat webhook message when a bridged Discord message is deleted', async () => {
+    await db!.run(
+      'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ['DC_FORWARD', 'DS1', 'SC_FORWARD', 'SS1', 'dw1', 'dt1', 'sw1'],
+    );
+    await db!.run(
       'INSERT INTO message_map (source_platform, source_message_id, target_platform, target_channel_id, target_webhook_message_id) VALUES (?, ?, ?, ?, ?)',
       ['discord', 'discord-delete-1', 'serchat', 'SC_FORWARD', 'serchat-webhook-message-1'],
     );
@@ -854,22 +938,22 @@ describe('Bridge Bot Utility Tests', () => {
       'sw1',
       'serchat-webhook-message-1',
     );
-    const mapped = await db.get(
+    const mapped = await db!.get(
       'SELECT * FROM message_map WHERE source_message_id = "discord-delete-1"',
     );
     expect(mapped).toBeUndefined();
   });
 
   it('should delete Serchat webhook messages when bridged Discord messages are bulk deleted', async () => {
-    await db.run(
+    await db!.run(
       'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ['DC_FORWARD', 'DS1', 'SC_FORWARD', 'SS1', 'dw1', 'dt1', 'sw1'],
     );
-    await db.run(
+    await db!.run(
       'INSERT INTO message_map (source_platform, source_message_id, target_platform, target_channel_id, target_webhook_message_id) VALUES (?, ?, ?, ?, ?)',
       ['discord', 'discord-bulk-1', 'serchat', 'SC_FORWARD', 'serchat-webhook-message-1'],
     );
-    await db.run(
+    await db!.run(
       'INSERT INTO message_map (source_platform, source_message_id, target_platform, target_channel_id, target_webhook_message_id) VALUES (?, ?, ?, ?, ?)',
       ['discord', 'discord-bulk-2', 'serchat', 'SC_FORWARD', 'serchat-webhook-message-2'],
     );
@@ -893,7 +977,7 @@ describe('Bridge Bot Utility Tests', () => {
       'sw1',
       'serchat-webhook-message-2',
     );
-    const remaining = await db.all(
+    const remaining = await db!.all(
       'SELECT * FROM message_map WHERE source_message_id IN ("discord-bulk-1", "discord-bulk-2")',
     );
     expect(remaining).toHaveLength(0);
@@ -902,11 +986,11 @@ describe('Bridge Bot Utility Tests', () => {
 
 
   it('should delete the Discord webhook message when a bridged Serchat message is deleted', async () => {
-    await db.run(
+    await db!.run(
       'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ['DC_FORWARD', 'DS1', 'SC_FORWARD', 'SS1', 'dw1', 'dt1', 'sw1'],
     );
-    await db.run(
+    await db!.run(
       'INSERT INTO message_map (source_platform, source_message_id, target_platform, target_channel_id, target_webhook_message_id) VALUES (?, ?, ?, ?, ?)',
       ['serchat', 'serchat-delete-1', 'discord', 'DC_FORWARD', 'discord-webhook-message-1'],
     );
@@ -916,22 +1000,22 @@ describe('Bridge Bot Utility Tests', () => {
     await serchatMessageDelete({ messageId: 'serchat-delete-1' } as unknown);
 
     expect(mockWebhookDeleteMessage).toHaveBeenCalledWith('discord-webhook-message-1');
-    const mapped = await db.get(
+    const mapped = await db!.get(
       'SELECT * FROM message_map WHERE source_message_id = "serchat-delete-1"',
     );
     expect(mapped).toBeUndefined();
   });
 
   it('should delete Discord webhook messages when bridged Serchat messages are bulk deleted', async () => {
-    await db.run(
+    await db!.run(
       'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ['DC_FORWARD', 'DS1', 'SC_FORWARD', 'SS1', 'dw1', 'dt1', 'sw1'],
     );
-    await db.run(
+    await db!.run(
       'INSERT INTO message_map (source_platform, source_message_id, target_platform, target_channel_id, target_webhook_message_id) VALUES (?, ?, ?, ?, ?)',
       ['serchat', 'serchat-bulk-1', 'discord', 'DC_FORWARD', 'discord-webhook-message-1'],
     );
-    await db.run(
+    await db!.run(
       'INSERT INTO message_map (source_platform, source_message_id, target_platform, target_channel_id, target_webhook_message_id) VALUES (?, ?, ?, ?, ?)',
       ['serchat', 'serchat-bulk-2', 'discord', 'DC_FORWARD', 'discord-webhook-message-2'],
     );
@@ -944,7 +1028,7 @@ describe('Bridge Bot Utility Tests', () => {
 
     expect(mockWebhookDeleteMessage).toHaveBeenCalledWith('discord-webhook-message-1');
     expect(mockWebhookDeleteMessage).toHaveBeenCalledWith('discord-webhook-message-2');
-    const remaining = await db.all(
+    const remaining = await db!.all(
       'SELECT * FROM message_map WHERE source_message_id IN ("serchat-bulk-1", "serchat-bulk-2")',
     );
     expect(remaining).toHaveLength(0);
@@ -953,7 +1037,7 @@ describe('Bridge Bot Utility Tests', () => {
   it('should complete handshake when a Serchat admin types accept exactly', async () => {
     serchat.hasPermission = vi.fn().mockResolvedValue(true);
 
-    await db.run(
+    await db!.run(
       'INSERT INTO bridge_requests (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, status, initiated_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ['DC_PENDING', 'DS1', 'SC_PENDING', 'ss1', 'pending_serchat', 'discord', Date.now()],
     );
@@ -979,11 +1063,11 @@ describe('Bridge Bot Utility Tests', () => {
 
     await serchatMessageCreate(mockMsg);
 
-    const bridge = await db.get('SELECT * FROM bridges WHERE discord_channel_id = "DC_PENDING"');
+    const bridge = await db!.get('SELECT * FROM bridges WHERE discord_channel_id = "DC_PENDING"');
     expect(bridge).toBeDefined();
     expect(bridge.serchat_webhook_id).toBe('sw1');
 
-    const req = await db.get(
+    const req = await db!.get(
       'SELECT * FROM bridge_requests WHERE discord_channel_id = "DC_PENDING"',
     );
     expect(req).toBeUndefined();
@@ -1004,7 +1088,7 @@ describe('Bridge Bot Utility Tests', () => {
     const acceptCmd = registeredCommands.find((c) => c.name === 'accept-bridge');
     expect(acceptCmd).toBeDefined();
 
-    await db.run(
+    await db!.run(
       'INSERT INTO bridge_requests (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, status, initiated_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ['DC_CMD', 'DS1', 'SC_CMD', 'ss1', 'pending_serchat', 'discord', Date.now()],
     );
@@ -1016,7 +1100,7 @@ describe('Bridge Bot Utility Tests', () => {
     });
     serchat.webhooks.createWebhook = vi.fn().mockResolvedValue({ token: 'sw1' });
 
-    const req = await db.get('SELECT id FROM bridge_requests WHERE discord_channel_id = "DC_CMD"');
+    const req = await db!.get('SELECT id FROM bridge_requests WHERE discord_channel_id = "DC_CMD"');
 
     const mockInteraction = {
       serverId: 'SS1',
@@ -1028,13 +1112,13 @@ describe('Bridge Bot Utility Tests', () => {
 
     await acceptCmd!.execute(mockInteraction);
 
-    const bridge = await db.get('SELECT * FROM bridges WHERE discord_channel_id = "DC_CMD"');
+    const bridge = await db!.get('SELECT * FROM bridges WHERE discord_channel_id = "DC_CMD"');
     expect(bridge).toBeDefined();
     expect(bridge.serchat_webhook_id).toBe('sw1');
   });
 
   it('should not forward a Discord message to Serchat if it contains a sticker or poll', async () => {
-    await db.run(
+    await db!.run(
       'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ['DC_FORWARD', 'DS1', 'SC_FORWARD', 'SS1', 'dw1', 'dt1', 'sw1'],
     );
@@ -1069,7 +1153,7 @@ describe('Bridge Bot Utility Tests', () => {
   });
 
   it('should not forward a Serchat message to Discord if it contains a sticker or poll', async () => {
-    await db.run(
+    await db!.run(
       'INSERT INTO bridges (discord_channel_id, discord_server_id, serchat_channel_id, serchat_server_id, discord_webhook_id, discord_webhook_token, serchat_webhook_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ['DC_FORWARD', 'DS1', 'SC_FORWARD', 'SS1', 'dw1', 'dt1', 'sw1'],
     );
