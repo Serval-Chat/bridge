@@ -612,6 +612,16 @@ class AcceptBridgeCommand extends BotCommand {
   }
 }
 
+class AboutCommand extends BotCommand {
+  name = 'about';
+  description = 'Learn about this bot';
+  options = {};
+
+  async execute(interaction: SerchatInteraction) {
+    await interaction.ephemeralReply('I am a bridge bot that syncs messages between Discord and Serchat!');
+  }
+}
+
 function wrapLinks(content: string): string {
   content = content.replace(
     /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
@@ -636,6 +646,7 @@ export function setupSerchatHandlers(discord: DiscordClient, serchat: SerchatCli
     serchat.commands.register(new AllowBridgingCommand());
     serchat.commands.register(new RemoveBridgeCommand());
     serchat.commands.register(new AcceptBridgeCommand());
+    serchat.commands.register(new AboutCommand());
 
     try {
       await serchat.commands.sync();
